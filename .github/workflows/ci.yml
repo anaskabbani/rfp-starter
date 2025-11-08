@@ -17,7 +17,7 @@ jobs:
           java-version: 21
       - name: Build backend
         working-directory: backend
-        run: ./gradlew clean build -x test
+        run: mvn clean install -DskipTests
 
   frontend:
     runs-on: ubuntu-latest
