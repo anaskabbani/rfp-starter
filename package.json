@@ -1,0 +1,8 @@
+{
+  "name": "saas-starter-jvm-monorepo",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "devDependencies": {}
+}
