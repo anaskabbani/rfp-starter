@@ -3,7 +3,10 @@ package com.acme.saas.controller;
 import com.acme.saas.domain.RfpDocument;
 import com.acme.saas.service.RfpDocumentService;
 import com.acme.saas.tenancy.TenantContext;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -23,8 +26,14 @@ public class RfpDocumentController {
         this.documentService = documentService;
     }
     
-    @PostMapping("/upload")
-    public ResponseEntity<?> uploadDocument(@RequestParam("file") MultipartFile file) {
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> uploadDocument(
+            @Parameter(description = "Tenant identifier (slug, e.g., 'acme')",
+                       required = false,
+                       example = "acme",
+                       schema = @Schema(type = "string"))
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantHeader,
+            @RequestParam("file") MultipartFile file) {
         try {
             // Get tenant from context (set by TenantFilter)
             String tenantId = extractTenantIdFromContext();

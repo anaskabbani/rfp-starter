@@ -51,7 +51,6 @@ public class RfpDocumentService {
         document.setFileSize(file.getSize());
         document.setStoragePath(storagePath);
         document.setStatus(RfpDocument.DocumentStatus.UPLOADED);
-        
         return repository.save(document);
     }
     

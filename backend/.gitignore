@@ -1,0 +1,23 @@
+# Node
+node_modules
+.next
+out
+
+# Java / Maven
+target/
+.mvn/wrapper/maven-wrapper.jar
+**/src/main/**/target/
+**/src/test/**/target/
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.properties
+
+# OS
+.DS_Store
+
+# Env
+.env
+*.log
+
+# Storage (uploaded files)
+backend/storage/
+storage/
