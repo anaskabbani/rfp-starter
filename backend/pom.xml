@@ -72,6 +72,20 @@
       <version>2.20.26</version>
     </dependency>
 
+    <!-- Apache PDFBox for PDF processing -->
+    <dependency>
+      <groupId>org.apache.pdfbox</groupId>
+      <artifactId>pdfbox</artifactId>
+      <version>3.0.1</version>
+    </dependency>
+
+    <!-- Apache POI for Office documents -->
+    <dependency>
+      <groupId>org.apache.poi</groupId>
+      <artifactId>poi-ooxml</artifactId>
+      <version>5.2.5</version>
+    </dependency>
+
     <!-- Observability -->
     <dependency>
       <groupId>io.micrometer</groupId>

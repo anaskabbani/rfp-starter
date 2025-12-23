@@ -9,6 +9,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.UUID;
 
 @Service
@@ -98,6 +99,22 @@ public class FileStorageService {
             return false;
         } catch (S3Exception e) {
             throw new FileStorageException("Failed to check file existence in S3: " + e.awsErrorDetails().errorMessage(), e);
+        }
+    }
+
+    /**
+     * Downloads a file from S3 and returns an InputStream.
+     */
+    public InputStream downloadFile(String s3Key) {
+        try {
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(s3Key)
+                    .build();
+
+            return s3Client.getObject(getObjectRequest);
+        } catch (S3Exception e) {
+            throw new FileStorageException("Failed to download file from S3: " + e.awsErrorDetails().errorMessage(), e);
         }
     }
 }

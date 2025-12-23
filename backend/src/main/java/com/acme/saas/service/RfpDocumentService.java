@@ -14,10 +14,15 @@ import java.util.UUID;
 public class RfpDocumentService {
     private final RfpDocumentRepository repository;
     private final FileStorageService storageService;
-    
-    public RfpDocumentService(RfpDocumentRepository repository, FileStorageService storageService) {
+    private final DocumentExtractionService extractionService;
+
+    public RfpDocumentService(
+            RfpDocumentRepository repository,
+            FileStorageService storageService,
+            DocumentExtractionService extractionService) {
         this.repository = repository;
         this.storageService = storageService;
+        this.extractionService = extractionService;
     }
     
     @Transactional
@@ -51,7 +56,19 @@ public class RfpDocumentService {
         document.setFileSize(file.getSize());
         document.setStoragePath(storagePath);
         document.setStatus(RfpDocument.DocumentStatus.UPLOADED);
-        return repository.save(document);
+        document = repository.save(document);
+
+        // Trigger document extraction
+        try {
+            extractionService.extractDocument(document);
+            document.setStatus(RfpDocument.DocumentStatus.COMPLETED);
+        } catch (Exception e) {
+            document.setStatus(RfpDocument.DocumentStatus.FAILED);
+            document.setErrorMessage(e.getMessage());
+        }
+        document = repository.save(document);
+
+        return document;
     }
     
     @Transactional(readOnly = true)
@@ -76,6 +93,7 @@ public class RfpDocumentService {
         return contentType != null && (
             contentType.equals("application/pdf") ||
             contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document") || // DOCX
+            contentType.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") || // XLSX
             contentType.equals("application/msword") || // DOC
             contentType.equals("text/plain") // TXT
         );

@@ -1,6 +1,8 @@
 package com.acme.saas.controller;
 
 import com.acme.saas.domain.RfpDocument;
+import com.acme.saas.domain.RfpDocumentExtraction;
+import com.acme.saas.repository.RfpDocumentExtractionRepository;
 import com.acme.saas.service.RfpDocumentService;
 import com.acme.saas.tenancy.TenantContext;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -19,11 +21,15 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/documents")
 public class RfpDocumentController {
-    
+
     private final RfpDocumentService documentService;
-    
-    public RfpDocumentController(RfpDocumentService documentService) {
+    private final RfpDocumentExtractionRepository extractionRepository;
+
+    public RfpDocumentController(
+            RfpDocumentService documentService,
+            RfpDocumentExtractionRepository extractionRepository) {
         this.documentService = documentService;
+        this.extractionRepository = extractionRepository;
     }
     
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -56,13 +62,25 @@ public class RfpDocumentController {
     }
     
     @GetMapping
-    public ResponseEntity<List<RfpDocument>> listDocuments() {
+    public ResponseEntity<List<RfpDocument>> listDocuments(
+            @Parameter(description = "Tenant identifier (slug, e.g., 'acme')",
+                       required = false,
+                       example = "acme",
+                       schema = @Schema(type = "string"))
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantHeader) {
         List<RfpDocument> documents = documentService.getAllDocuments();
         return ResponseEntity.ok(documents);
     }
     
     @GetMapping("/{id}")
-    public ResponseEntity<RfpDocument> getDocument(@PathVariable UUID id) {
+    public ResponseEntity<RfpDocument> getDocument(
+            @Parameter(description = "Tenant identifier (slug, e.g., 'acme')",
+                       required = false,
+                       example = "acme",
+                       schema = @Schema(type = "string"))
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantHeader,
+            @Parameter(description = "Document ID", required = true)
+            @PathVariable("id") UUID id) {
         try {
             RfpDocument document = documentService.getDocument(id);
             return ResponseEntity.ok(document);
@@ -72,7 +90,13 @@ public class RfpDocumentController {
     }
     
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteDocument(@PathVariable UUID id) {
+    public ResponseEntity<?> deleteDocument(
+            @Parameter(description = "Tenant identifier (slug, e.g., 'acme')",
+                       required = false,
+                       example = "acme",
+                       schema = @Schema(type = "string"))
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantHeader,
+            @PathVariable("id") UUID id) {
         try {
             documentService.deleteDocument(id);
             return ResponseEntity.noContent().build();
@@ -83,7 +107,20 @@ public class RfpDocumentController {
                 .body(Map.of("error", "Failed to delete file: " + e.getMessage()));
         }
     }
-    
+
+    @GetMapping("/{id}/extraction")
+    public ResponseEntity<RfpDocumentExtraction> getDocumentExtraction(
+            @Parameter(description = "Tenant identifier (slug, e.g., 'acme')",
+                       required = false,
+                       example = "acme",
+                       schema = @Schema(type = "string"))
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantHeader,
+            @PathVariable("id") UUID id) {
+        return extractionRepository.findByDocumentId(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     private String extractTenantIdFromContext() {
         String tenant = TenantContext.getCurrentTenant();
         if (tenant == null || tenant.equals(TenantContext.DEFAULT_TENANT)) {
