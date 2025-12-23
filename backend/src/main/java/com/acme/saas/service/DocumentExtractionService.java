@@ -69,7 +69,6 @@ public class DocumentExtractionService {
             ExtractionResult result = switch (document.getContentType()) {
                 case "application/pdf" -> extractPdf(inputStream);
                 case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> extractDocx(inputStream);
-                //clean up the extraction
                 case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> extractXlsx(inputStream);
                 default -> throw new IllegalArgumentException("Unsupported content type: " + document.getContentType());
             };
@@ -171,6 +170,7 @@ public class DocumentExtractionService {
 
     /**
      * Extract text and tables from XLSX using Apache POI.
+     * Optimized for LLM consumption (field extraction and summarization).
      */
     private ExtractionResult extractXlsx(InputStream inputStream) throws IOException {
         try (XSSFWorkbook workbook = new XSSFWorkbook(inputStream)) {
@@ -181,17 +181,35 @@ public class DocumentExtractionService {
             for (int i = 0; i < sheetCount; i++) {
                 XSSFSheet sheet = workbook.getSheetAt(i);
                 String sheetName = sheet.getSheetName();
+
+                // Add sheet header for context
+                if (fullText.length() > 0) {
+                    fullText.append("\n\n");
+                }
+                fullText.append("Sheet: ").append(sheetName).append("\n");
+
                 List<List<String>> rows = new ArrayList<>();
 
                 for (org.apache.poi.ss.usermodel.Row row : sheet) {
                     List<String> cells = new ArrayList<>();
+                    List<String> meaningfulCells = new ArrayList<>();
+
                     for (org.apache.poi.ss.usermodel.Cell cell : row) {
                         String cellValue = getCellValueAsString(cell);
                         cells.add(cellValue);
-                        fullText.append(cellValue).append("\t");
+
+                        // Only add meaningful cells to fullText
+                        if (isMeaningfulCell(cellValue)) {
+                            meaningfulCells.add(cellValue.trim());
+                        }
                     }
+
                     rows.add(cells);
-                    fullText.append("\n");
+
+                    // Add meaningful cells to fullText with space separator
+                    if (!meaningfulCells.isEmpty()) {
+                        fullText.append(String.join(" ", meaningfulCells)).append("\n");
+                    }
                 }
 
                 if (!rows.isEmpty()) {
@@ -226,6 +244,25 @@ public class DocumentExtractionService {
             case FORMULA -> cell.getCellFormula();
             default -> "";
         };
+    }
+
+    /**
+     * Check if a cell value is meaningful for text extraction.
+     * Filters out empty cells and cells containing only zeros (common in Excel for empty numeric cells).
+     */
+    private boolean isMeaningfulCell(String cellValue) {
+        if (cellValue == null || cellValue.trim().isEmpty()) {
+            return false;
+        }
+
+        String trimmed = cellValue.trim();
+
+        // Skip cells that are just zeros (likely empty cells in Excel)
+        if (trimmed.equals("0") || trimmed.equals("0.0")) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
