@@ -136,6 +136,18 @@
           <target>${java.version}</target>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <!-- Run test classes sequentially to avoid resource contention -->
+          <forkCount>1</forkCount>
+          <reuseForks>true</reuseForks>
+          <!-- Increase timeout for integration tests -->
+          <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 </project>
