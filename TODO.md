@@ -6,34 +6,62 @@
 
 **These items MUST be completed before production deployment** (from Architecture Review)
 
-### 🔴 CRITICAL - Authentication & Authorization
-**Priority: CRITICAL | Blocks Production: YES | Effort: 1-2 weeks**
+### 🟡 IN PROGRESS - Authentication & Authorization
+**Priority: CRITICAL | Blocks Production: YES | Status: Backend Complete, Frontend Pending**
 
-**Problem**: Currently, ANY client can access ANY tenant's data by simply setting the `X-Tenant-Id` header. There is NO verification that authenticated users belong to the tenant they're accessing.
+**Backend Implementation Complete** ✅
+- [x] Implement OAuth2/JWT authentication (Spring Security OAuth2 Resource Server)
+- [x] Clerk as authentication provider (JWT validation via JWKS)
+- [x] Tenant derived from JWT `org_slug` claim (not header)
+- [x] API key authentication for service-to-service calls
+- [x] Lazy schema provisioning for new Clerk organizations
+- [x] Updated Swagger/OpenAPI with Bearer auth scheme
 
-**Attack Vector**:
-```bash
-# Attacker can access any tenant by changing header
-curl -H "X-Tenant-Id: acme" http://api/documents
-curl -H "X-Tenant-Id: competitor" http://api/documents  # 🚨 No validation!
-```
+**Remaining Steps**:
 
-**Required Implementation**:
-- [ ] Implement OIDC/OAuth2 authentication (Spring Security)
-- [ ] Store tenant membership in JWT claims or user profile
-- [ ] Validate authenticated user's tenant matches `X-Tenant-Id` header in TenantFilter
-- [ ] Return 403 Forbidden if tenant mismatch
-- [ ] Consider deriving tenant from JWT claims instead of header
+1. **Set up Clerk account**:
+   - [x] Create account at [clerk.com](https://clerk.com)
+   - [x] Create an organization with a slug (e.g., "acme")
+   - [x] Note your instance URL (e.g., `https://your-instance.clerk.accounts.dev`)
 
-**Files to Create/Modify**:
-- New: `config/SecurityConfig.java` (Spring Security config)
-- New: `security/JwtAuthenticationFilter.java`
-- New: `security/TenantAuthorizationFilter.java`
-- Modify: `tenancy/TenantFilter.java` (add tenant validation)
+2. **Configure environment variables**:
+   ```bash
+   export CLERK_ISSUER_URI=https://your-instance.clerk.accounts.dev
+   export CLERK_JWKS_URI=https://your-instance.clerk.accounts.dev/.well-known/jwks.json
+   export API_KEYS=your-api-key-here  # For service-to-service calls (optional)
+   ```
 
-**Decision Needed**:
-- What's the authentication provider? (Auth0, Okta, Keycloak, custom JWT?)
-- Single-tenant users or multi-tenant users?
+3. **Test backend auth**:
+   - [x] Get a test JWT from Clerk dashboard
+   - [x] Test endpoints with `Authorization: Bearer <jwt>`
+   - [x] Verify tenant schema is lazily created
+   - [x] Verify unauthenticated requests return 401
+
+4. **Implement frontend Clerk integration**:
+   - [ ] Install `@clerk/nextjs` package
+   - [ ] Add ClerkProvider to layout
+   - [ ] Add sign-in/sign-out components
+   - [ ] Add JWT to API requests via axios interceptor
+   - [ ] Add middleware for protected routes
+
+   See `/Users/anaskabbani/.claude/plans/kind-gathering-mango.md` for detailed frontend implementation guide.
+
+**Files Created**:
+- `security/ClerkPrincipal.java` - User principal record
+- `security/ClerkAuthenticationToken.java` - Auth token
+- `security/ClerkJwtAuthenticationConverter.java` - JWT → principal converter
+- `security/TenantAuthorizationFilter.java` - Sets tenant context from auth
+- `security/ApiKeyAuthenticationToken.java` - API key token
+- `security/ApiKeyAuthenticationFilter.java` - API key filter
+
+**Files Modified**:
+- `config/SecurityConfig.java` - OAuth2 resource server config
+- `config/OpenApiConfig.java` - Bearer auth in Swagger
+- `service/OrgService.java` - Lazy schema provisioning
+- `application.properties` - Clerk JWT + API key config
+
+**Files Removed**:
+- `tenancy/TenantFilter.java` - Replaced by TenantAuthorizationFilter
 
 ---
 
@@ -346,6 +374,20 @@ Document the document extraction feature and migration process.
 
 ## Completed ✅
 
+### Authentication Backend Implementation (Jan 9, 2026)
+- [x] Add OAuth2 Resource Server dependency
+- [x] Configure Clerk JWT validation via JWKS endpoint
+- [x] Create ClerkPrincipal record for authenticated user info
+- [x] Create ClerkAuthenticationToken for Spring Security
+- [x] Create ClerkJwtAuthenticationConverter to extract org_slug from JWT
+- [x] Create TenantAuthorizationFilter to set tenant context from auth
+- [x] Create ApiKeyAuthenticationToken for service-to-service auth
+- [x] Create ApiKeyAuthenticationFilter for X-API-Key header
+- [x] Add lazy schema provisioning to OrgService
+- [x] Update SecurityConfig for OAuth2 + API key auth
+- [x] Update OpenApiConfig with Bearer auth scheme
+- [x] Remove old TenantFilter (replaced by auth filters)
+
 ### Document Extraction Implementation (Dec 22, 2025)
 - [x] Add PDFBox and POI dependencies to pom.xml
 - [x] Create migration V3__document_extractions.sql
@@ -384,7 +426,7 @@ Document the document extraction feature and migration process.
 - No AI-powered structured data extraction yet
 
 ### Known Limitations - Architecture (from ARCHITECTURE_REVIEW.md)
-- **No authentication**: Any client can access any tenant data by changing X-Tenant-Id header 🚨
+- **Authentication implemented**: Clerk JWT + API key auth (backend complete, frontend pending)
 - **ThreadLocal tenant context**: Incompatible with @Async, virtual threads, reactive streams
 - **Schema-per-tenant scalability**: Fine for <100 tenants, problematic at >500 tenants
   - Migration performance degrades with tenant count
@@ -395,6 +437,7 @@ Document the document extraction feature and migration process.
 - Apache PDFBox 3.0.1
 - Apache POI 5.2.5 (poi-ooxml)
 - AWS SDK v2 for S3 (2.20.26)
+- Spring Boot OAuth2 Resource Server (for Clerk JWT validation)
 
 ### Database Schema
 - New table: `rfp_document_extractions` (per tenant schema)

@@ -65,17 +65,19 @@ mvn test -Dtest=ClassName#methodName
 **Core concept**: Each tenant gets its own PostgreSQL schema (`tenant_<slug>`). The system uses a ThreadLocal-based tenant context to route database queries to the correct schema.
 
 **Key components**:
-- `TenantFilter` (backend/src/main/java/com/acme/saas/tenancy/TenantFilter.java): Intercepts HTTP requests, reads `X-Tenant-Id` header, sets tenant context for the request lifecycle
-- `TenantContext` (backend/src/main/java/com/acme/saas/tenancy/TenantContext.java): ThreadLocal storage for current tenant. Defaults to "public" schema if no tenant header provided
+- `TenantContext` (backend/src/main/java/com/acme/saas/tenancy/TenantContext.java): ThreadLocal storage for current tenant. Defaults to "public" schema if no tenant set
+- `TenantAuthorizationFilter` (backend/src/main/java/com/acme/saas/security/TenantAuthorizationFilter.java): Extracts tenant from authenticated JWT claims and sets tenant context
 - `SchemaPerTenantConnectionProvider`: Hibernate integration that switches schemas based on current tenant
 - `CurrentTenantIdentifierResolverImpl`: Resolves tenant identifier from `TenantContext`
 - `HibernateConfig` (backend/src/main/java/com/acme/saas/config/HibernateConfig.java): Configures Hibernate with multitenancy beans and CamelCaseToUnderscoresNamingStrategy
 
-**Tenant provisioning flow** (`OrgService.createOrg`):
-1. Create PostgreSQL schema (`CREATE SCHEMA IF NOT EXISTS tenant_<slug>`)
-2. Run Flyway migrations from `db/migration/tenant/` against the new schema
-3. Save org metadata to `public.orgs` table
-4. Return created org entity
+**Tenant provisioning flow** (Clerk-driven with lazy provisioning):
+1. Admin creates organization in Clerk dashboard with a slug (e.g., "acme")
+2. User authenticates via Clerk, JWT includes `org_slug` claim
+3. First API request triggers `OrgService.ensureSchemaExists()`:
+   - Creates PostgreSQL schema (`CREATE SCHEMA IF NOT EXISTS tenant_<slug>`)
+   - Runs Flyway migrations from `db/migration/tenant/` against the new schema
+4. Subsequent requests use the existing schema
 
 **Migration locations**:
 - `backend/src/main/resources/db/migration/public/`: Shared schema (orgs table, etc.)
@@ -97,7 +99,8 @@ Standard Spring Boot layered architecture:
 - **repository/**: JPA repositories (extend `JpaRepository`)
 - **domain/**: JPA entities (use `@Entity`, map to database tables)
 - **config/**: Spring configuration classes
-- **tenancy/**: Multitenancy infrastructure
+- **security/**: Authentication and authorization (Clerk JWT, API key filters)
+- **tenancy/**: Multitenancy infrastructure (TenantContext, Hibernate providers)
 
 **Important**: All JPA queries automatically route to the current tenant's schema via Hibernate multitenancy configuration.
 
@@ -158,6 +161,44 @@ Next.js 15 using App Router:
 
 API calls use axios with base URL `http://localhost:8080` (dev) or `NEXT_PUBLIC_API_BASE` env var.
 
+### Authentication System
+
+**Provider**: Clerk (clerk.com) for user authentication and organization management.
+
+**Authentication methods**:
+1. **JWT (primary)**: Clerk-issued JWTs validated via JWKS endpoint. Tenant derived from `org_slug` claim.
+2. **API Key (service-to-service)**: `X-API-Key` header for internal services. Tenant from `X-Tenant-Id` header.
+
+**Key components**:
+- `SecurityConfig` (backend/src/main/java/com/acme/saas/config/SecurityConfig.java): Configures OAuth2 Resource Server with JWT validation
+- `ClerkJwtAuthenticationConverter`: Extracts `org_slug`, `org_id`, `org_role` from JWT claims
+- `ClerkPrincipal`: Record holding authenticated user info (userId, orgSlug, orgId, orgRole)
+- `ClerkAuthenticationToken`: Spring Security token wrapping ClerkPrincipal
+- `ApiKeyAuthenticationFilter`: Processes `X-API-Key` header for service auth
+- `TenantAuthorizationFilter`: Sets TenantContext from authenticated principal
+
+**Public endpoints** (no auth required):
+- `/health`, `/health/**`
+- `/swagger-ui/**`, `/swagger-ui.html`
+- `/v3/api-docs/**`, `/api-docs/**`
+
+**Authentication flow**:
+1. Frontend obtains JWT from Clerk after user login
+2. Frontend sends `Authorization: Bearer <jwt>` header with requests
+3. Backend validates JWT signature via Clerk's JWKS endpoint
+4. `ClerkJwtAuthenticationConverter` extracts claims and creates `ClerkPrincipal`
+5. `TenantAuthorizationFilter` sets tenant context from `org_slug`
+6. If schema doesn't exist, lazy provisioning creates it
+
+**Testing authentication**:
+```bash
+# With Clerk JWT
+curl -H "Authorization: Bearer <jwt>" http://localhost:8080/api/documents
+
+# With API key (for service-to-service)
+curl -H "X-API-Key: <key>" -H "X-Tenant-Id: acme" http://localhost:8080/api/documents
+```
+
 ## Configuration
 
 ### Backend (`backend/src/main/resources/application.properties`)
@@ -165,6 +206,8 @@ API calls use axios with base URL `http://localhost:8080` (dev) or `NEXT_PUBLIC_
 Key settings:
 - Database: `DB_URL`, `DB_USER`, `DB_PASS` env vars (defaults to localhost:5432)
 - AWS S3: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (credentials optional if using IAM roles)
+- Clerk Auth: `CLERK_ISSUER_URI`, `CLERK_JWKS_URI` for JWT validation
+- API Keys: `API_KEYS` (comma-separated list for service-to-service auth)
 - Multitenancy: Configured via `HibernateConfig` Java class (not properties)
 - Flyway: `spring.flyway.locations=classpath:db/migration/public` for public schema
 - Naming strategy: CamelCaseToUnderscoresNamingStrategy for DB column mapping
@@ -233,8 +276,9 @@ File storage uses AWS S3. Before running the application:
 1. Add controller method with `@GetMapping`/`@PostMapping` in `controller/` package
 2. Use `@RequestBody` for JSON payloads, `@PathVariable` for URL params
 3. OpenAPI (Swagger) docs auto-generated at `http://localhost:8080/swagger-ui.html`
-4. All endpoints automatically filtered by `TenantFilter` to set tenant context
-5. Return entities/DTOs directly - Jackson handles JSON serialization
+4. All endpoints require authentication (JWT or API key) unless added to public endpoints in `SecurityConfig`
+5. Tenant context automatically set from JWT `org_slug` claim via `TenantAuthorizationFilter`
+6. Return entities/DTOs directly - Jackson handles JSON serialization
 
 ### File Uploads
 
@@ -256,6 +300,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 
 **Backend** (managed via Maven in `backend/pom.xml`):
 - Spring Boot 3.3.4 with Web, Security, Data JPA, Validation
+- Spring Boot OAuth2 Resource Server for JWT validation
 - Flyway 10.10.0 for migrations
 - PostgreSQL driver
 - AWS SDK v2 S3 (2.20.26) for file storage
@@ -273,8 +318,11 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 
 ## Common Gotchas
 
-- **Tenant context**: Always ensure `X-Tenant-Id` header is set in API requests from frontend, otherwise queries default to `public` schema
-- **Migrations**: Public schema migrations run automatically on app startup. Tenant schema migrations run only when creating new org via `POST /api/orgs`. For existing tenants, see TODO.md for manual migration scripts.
+- **Authentication required**: All API endpoints (except `/health`, `/swagger-ui/**`) require authentication. Use `Authorization: Bearer <jwt>` header with Clerk JWT.
+- **Tenant from JWT**: Tenant is automatically derived from the JWT `org_slug` claim. No need to set `X-Tenant-Id` header for authenticated requests. (API key auth still uses `X-Tenant-Id` header.)
+- **Clerk org_slug required**: JWT must contain `org_slug` claim. If user isn't part of a Clerk organization, requests will fail with 403.
+- **Lazy provisioning**: Tenant schemas are created automatically on first authenticated request. No need to manually create orgs via API.
+- **Migrations**: Public schema migrations run automatically on app startup. Tenant schema migrations run on first request to a new tenant (lazy provisioning). For existing tenants, see TODO.md for manual migration scripts.
 - **Column naming**: Java camelCase fields (e.g., `contentType`) automatically map to snake_case DB columns (e.g., `content_type`) via `CamelCaseToUnderscoresNamingStrategy`
 - **JSONB type mapping**: Entity fields storing JSONB must use `@JdbcTypeCode(SqlTypes.JSON)` annotation in addition to `columnDefinition = "JSONB"`. The `columnDefinition` only affects DDL generation; `@JdbcTypeCode` tells Hibernate how to map the type during queries.
 - **S3 configuration**: Requires S3 bucket to exist and proper AWS credentials (env vars, properties, or IAM roles). In production, use IAM roles for security.
