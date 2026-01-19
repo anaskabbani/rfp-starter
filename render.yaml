@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: saas-backend
+    runtime: java
+    buildCommand: cd backend && mvn clean install -DskipTests
+    startCommand: cd backend && java -jar target/saas-backend-0.1.0.jar
+    envVars:
+      - key: DB_URL
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASS
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: CLERK_ISSUER_URI
+        sync: false
+      - key: CLERK_JWKS_URI
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: API_KEYS
+        sync: false
+    healthCheckPath: /health
