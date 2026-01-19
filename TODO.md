@@ -6,8 +6,8 @@
 
 **These items MUST be completed before production deployment** (from Architecture Review)
 
-### 🟡 IN PROGRESS - Authentication & Authorization
-**Priority: CRITICAL | Blocks Production: YES | Status: Backend Complete, Frontend Pending**
+### ✅ COMPLETE - Authentication & Authorization
+**Priority: CRITICAL | Blocks Production: YES | Status: Complete (Jan 10, 2026)**
 
 **Backend Implementation Complete** ✅
 - [x] Implement OAuth2/JWT authentication (Spring Security OAuth2 Resource Server)
@@ -37,14 +37,14 @@
    - [x] Verify tenant schema is lazily created
    - [x] Verify unauthenticated requests return 401
 
-4. **Implement frontend Clerk integration**:
-   - [ ] Install `@clerk/nextjs` package
-   - [ ] Add ClerkProvider to layout
-   - [ ] Add sign-in/sign-out components
-   - [ ] Add JWT to API requests via axios interceptor
-   - [ ] Add middleware for protected routes
-
-   See `/Users/anaskabbani/.claude/plans/kind-gathering-mango.md` for detailed frontend implementation guide.
+4. **Implement frontend Clerk integration**: ✅ **COMPLETED (Jan 10, 2026)**
+   - [x] Install `@clerk/nextjs` package
+   - [x] Add ClerkProvider to layout
+   - [x] Add sign-in/sign-out components
+   - [x] Add JWT to API requests via axios interceptor
+   - [x] Add middleware for protected routes
+   - [x] Add OrganizationSwitcher for multi-org support
+   - [x] Build complete UI with Tailwind CSS
 
 **Files Created**:
 - `security/ClerkPrincipal.java` - User principal record
@@ -65,56 +65,34 @@
 
 ---
 
-### 🔴 CRITICAL - CORS Configuration
-**Priority: CRITICAL | Blocks Production: YES | Effort: 1 hour**
+### 🟡 HIGH - Integration Tests (HTTP Layer & Authentication)
+**Priority: HIGH | Blocks Production: YES | Effort: 10 days (2 weeks)**
 
-**Problem**: Production frontend (different domain) won't be able to call backend API without CORS headers.
+**Status**: Data-layer tests exist ✅, HTTP-layer tests needed ❌
 
-**Required Implementation**:
-- [ ] Create WebConfig with CORS mapping for `/api/**`
-- [ ] Configure allowed origins from environment variable
-- [ ] Set allowCredentials for cookie/session support
-- [ ] Add security headers (CSP, HSTS)
+**What Already Exists**:
+- ✅ `MultitenancyIntegrationTest.java` - Data-layer tenant isolation
+- ✅ `OrgServiceIntegrationTest.java` - Org creation + schema provisioning + Flyway migrations
+- ✅ `DocumentExtractionIntegrationTest.java` - PDF/DOCX/XLSX extraction with S3 mocking
+- ✅ `BaseIntegrationTest.java` - Testcontainers infrastructure, DB helper methods
+- ✅ Unit tests for service layer with mocks
+- ✅ Test file utilities and sample documents
 
-**Files to Create**:
-- New: `config/WebConfig.java`
+**Critical Gaps** (blocks production):
+1. **Authentication/Authorization** - Zero tests for Clerk JWT or API key flows
+2. **HTTP-layer tenant isolation** - No end-to-end tests via HTTP (all current tests bypass HTTP)
+3. **Security filter chain** - TenantAuthorizationFilter, ApiKeyAuthenticationFilter untested
+4. **API contracts** - No validation of HTTP status codes, error responses, response schemas
+5. **Lazy provisioning via auth** - No tests that first authenticated request creates schema
 
-```java
-@Configuration
-public class WebConfig implements WebMvcConfigurer {
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOrigins(getAllowedOrigins())
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowedHeaders("*")
-                .allowCredentials(true);
-    }
-}
-```
+**Implementation Plan**: See **`/Users/anaskabbani/.claude/plans/zippy-honking-cook.md`** for detailed 10-day implementation plan covering:
+- Phase 1 (Days 1-3): Authentication integration tests (JWT flows, API key auth, security filters)
+- Phase 2 (Days 4-5): End-to-end tenant isolation via HTTP
+- Phase 3 (Days 6-7): API contract tests (all endpoints, status codes, response schemas)
+- Phase 4 (Day 8): OpenAPI contract validation
+- Phase 5 (Days 9-10): Edge cases and error handling
 
----
-
-### 🟡 HIGH - Integration Tests (Multitenancy Isolation)
-**Priority: HIGH | Blocks Production: YES | Effort: 2-3 weeks**
-
-**Problem**: No automated tests means no safety net for refactoring. Critical to verify tenant data isolation.
-
-**Required Test Coverage**:
-- [ ] **Multitenancy isolation tests** - Ensure tenant A can't access tenant B data
-- [ ] Org creation + schema provisioning flow
-- [ ] Flyway migrations on tenant schemas
-- [ ] File upload/download with S3
-- [ ] Document extraction with PDF/DOCX/XLSX samples
-- [ ] API endpoint contracts (OpenAPI validation)
-
-**Files to Create**:
-- `src/test/java/com/acme/saas/MultitenancyIsolationTest.java`
-- `src/test/java/com/acme/saas/OrgProvisioningTest.java`
-- `src/test/java/com/acme/saas/DocumentExtractionTest.java`
-- `src/test/resources/` - Sample test documents
-
-**Tools**: Testcontainers (PostgreSQL), JUnit 5, Spring Boot Test
+**Tools**: Testcontainers (PostgreSQL), JUnit 5, Spring Boot Test, TestRestTemplate, JWT mocking
 
 ---
 
@@ -171,6 +149,112 @@ public class WebConfig implements WebMvcConfigurer {
 - [ ] **Option C**: Use for session storage, rate limiting, or distributed locks
 
 **Decision Needed**: What was Redis intended for?
+
+---
+
+## Backend API Gaps
+
+> **Identified during frontend implementation (Jan 10, 2026)**
+> These gaps don't block MVP but should be addressed for production readiness.
+
+### 🟡 HIGH - Document List Pagination
+**Priority: HIGH | Blocks Production: NO (until scale) | Effort: 2-4 hours**
+
+**Problem**: `GET /api/documents` returns all documents. Performance degrades with many documents.
+
+**Implementation**:
+- [ ] Add `page` and `size` query parameters
+- [ ] Return paginated response with total count
+- [ ] Use Spring Data `Pageable` in repository
+- [ ] Update frontend to handle pagination
+
+**Files to Modify**:
+- `RfpDocumentController.java` - Add pagination params
+- `RfpDocumentRepository.java` - Use `Pageable`
+- Frontend `useApi.ts` - Handle paginated response
+
+---
+
+### 🟡 MEDIUM - Document Search & Filtering
+**Priority: MEDIUM | Blocks Production: NO | Effort: 4-6 hours**
+
+**Problem**: No way to search or filter documents by name, status, or date.
+
+**Implementation**:
+- [ ] Add `search` query param (filename search)
+- [ ] Add `status` query param (filter by UPLOADED/PROCESSING/COMPLETED/FAILED)
+- [ ] Add `dateFrom`/`dateTo` query params
+- [ ] Use Spring Data Specifications or Criteria API
+
+**Files to Modify**:
+- `RfpDocumentController.java` - Add filter params
+- `RfpDocumentRepository.java` - Add query methods
+- New: `RfpDocumentSpecification.java` for dynamic queries
+
+---
+
+### 🟡 MEDIUM - File Download Endpoint
+**Priority: MEDIUM | Blocks Production: NO | Effort: 2-3 hours**
+
+**Problem**: No endpoint to retrieve original uploaded files from S3.
+
+**Implementation**:
+- [ ] Add `GET /api/documents/{id}/download` endpoint
+- [ ] Return file with proper Content-Type and Content-Disposition headers
+- [ ] Consider presigned S3 URL vs streaming through backend
+- [ ] Add rate limiting to prevent abuse
+
+**Files to Modify**:
+- `RfpDocumentController.java` - Add download endpoint
+- `FileStorageService.java` - Add getFile or getPresignedUrl method
+
+---
+
+### 🟡 MEDIUM - Extraction Retry Endpoint
+**Priority: MEDIUM | Blocks Production: NO | Effort: 2-3 hours**
+
+**Problem**: Failed extractions have no retry mechanism. Documents stuck in FAILED state.
+
+**Implementation**:
+- [ ] Add `POST /api/documents/{id}/retry-extraction` endpoint
+- [ ] Reset extraction status to PENDING
+- [ ] Re-run extraction synchronously or queue for async processing
+- [ ] Add retry count tracking to prevent infinite retries
+
+**Files to Modify**:
+- `RfpDocumentController.java` - Add retry endpoint
+- `RfpDocumentService.java` - Add retry logic
+- `RfpDocumentExtraction.java` - Add retryCount field (optional)
+
+---
+
+### 🟢 LOW - Organization List/Detail Endpoints
+**Priority: LOW | Blocks Production: NO | Effort: 2-3 hours**
+
+**Problem**: Only `createOrg` and `whoami` exist. No way to list or view org details.
+
+**Implementation**:
+- [ ] Add `GET /api/orgs` - List user's organizations (from Clerk)
+- [ ] Add `GET /api/orgs/{slug}` - Get org details
+- [ ] Consider whether this should call Clerk API or just return cached data
+
+**Note**: Clerk handles org management. These endpoints may be unnecessary if using Clerk's organization UI.
+
+---
+
+### 🟢 LOW - Bulk Document Operations
+**Priority: LOW | Blocks Production: NO | Effort: 4-6 hours**
+
+**Problem**: Can only delete one document at a time. No bulk operations.
+
+**Implementation**:
+- [ ] Add `POST /api/documents/bulk-delete` with array of IDs
+- [ ] Add transaction handling for atomic operations
+- [ ] Add maximum batch size limit
+
+**Files to Modify**:
+- `RfpDocumentController.java` - Add bulk endpoints
+- `RfpDocumentService.java` - Add bulk operation methods
 
 ---
 
@@ -373,6 +457,50 @@ Document the document extraction feature and migration process.
 ---
 
 ## Completed ✅
+
+### Frontend Implementation (Jan 10, 2026)
+- [x] Install Tailwind CSS v4 with PostCSS
+- [x] Install and configure @clerk/nextjs
+- [x] Create middleware.ts for route protection
+- [x] Create sign-in/sign-up pages with Clerk components
+- [x] Update layout.tsx with ClerkProvider, UserButton, OrganizationSwitcher
+- [x] Create typed API client with JWT token injection (lib/api.ts, hooks/useApi.ts)
+- [x] Create TypeScript types matching backend entities (types/api.ts)
+- [x] Build UI component library (Button, Badge, Card, Alert, Skeleton, Modal, Tabs)
+- [x] Update Documents page with auth and Tailwind styling
+- [x] Update FileUpload component with Tailwind styling
+- [x] Create Document detail page with extraction viewer
+- [x] Create extraction viewer components (TextViewer, TablesViewer, KeyValuesViewer)
+- [x] Create Dashboard with stats, quick actions, and recent documents
+
+**Files Created**:
+- `frontend/middleware.ts` - Route protection
+- `frontend/app/sign-in/[[...sign-in]]/page.tsx` - Sign-in page
+- `frontend/app/sign-up/[[...sign-up]]/page.tsx` - Sign-up page
+- `frontend/types/api.ts` - TypeScript types
+- `frontend/lib/api.ts` - API client factory
+- `frontend/hooks/useApi.ts` - React hook for API calls
+- `frontend/app/components/ui/*.tsx` - UI component library
+- `frontend/app/components/extraction/*.tsx` - Extraction viewer components
+- `frontend/app/documents/[id]/page.tsx` - Document detail page
+
+**Files Modified**:
+- `frontend/app/layout.tsx` - ClerkProvider, Navbar, globals.css import
+- `frontend/app/page.tsx` - Dashboard with stats and quick actions
+- `frontend/app/documents/page.tsx` - Document list with auth
+- `frontend/app/components/FileUpload.tsx` - Tailwind styling, useApi hook
+- `frontend/tsconfig.json` - Path aliases
+- `frontend/.env.example` - Clerk configuration
+
+---
+
+### CORS Configuration (Jan 10, 2026)
+- [x] Create WebConfig with CORS mappings for `/api/**`
+- [x] Configure allowed origins from environment variable `CORS_ALLOWED_ORIGINS`
+- [x] Set allowed methods (GET, POST, PUT, DELETE, OPTIONS, PATCH)
+- [x] Enable credentials support for cross-origin requests
+- [x] Add security headers interceptor (CSP, HSTS, X-Frame-Options, etc.)
+- [x] Test CORS configuration (build and tests passing)
 
 ### Authentication Backend Implementation (Jan 9, 2026)
 - [x] Add OAuth2 Resource Server dependency

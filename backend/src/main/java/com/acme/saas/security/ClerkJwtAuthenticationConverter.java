@@ -21,9 +21,18 @@ public class ClerkJwtAuthenticationConverter implements Converter<Jwt, ClerkAuth
     @Override
     public ClerkAuthenticationToken convert(Jwt jwt) {
         String userId = jwt.getSubject();
-        String orgSlug = jwt.getClaimAsString("org_slug");
-        String orgId = jwt.getClaimAsString("org_id");
-        String orgRole = jwt.getClaimAsString("org_role");
+
+        // Extract organization claims from nested "o" object
+        var orgClaims = jwt.getClaimAsMap("o");
+        String orgSlug = null;
+        String orgId = null;
+        String orgRole = null;
+
+        if (orgClaims != null) {
+            orgSlug = (String) orgClaims.get("slg");
+            orgId = (String) orgClaims.get("id");
+            orgRole = (String) orgClaims.get("rol");
+        }
 
         if (orgSlug == null || orgSlug.isBlank()) {
             throw new AccessDeniedException("No organization selected. User must be part of an organization.");
