@@ -1,25 +1,26 @@
 "use client";
 
 import { useState, useRef } from "react";
-import axios from "axios";
-
-const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
-
-interface UploadResult {
-  id: string;
-  filename: string;
-  size: number;
-  status: string;
-  uploadedAt: string;
-}
+import { useApi } from "@/hooks/useApi";
+import type { UploadResponse } from "@/types/api";
 
 interface FileUploadProps {
-  tenantId?: string;
-  onUploadSuccess?: (result: UploadResult) => void;
+  onUploadSuccess?: (result: UploadResponse) => void;
   onUploadError?: (error: string) => void;
 }
 
-export default function FileUpload({ tenantId = "acme", onUploadSuccess, onUploadError }: FileUploadProps) {
+const ALLOWED_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/msword",
+  "text/plain",
+];
+
+const MAX_SIZE = 50 * 1024 * 1024; // 50MB
+
+export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploadProps) {
+  const api = useApi();
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dragActive, setDragActive] = useState(false);
@@ -27,21 +28,13 @@ export default function FileUpload({ tenantId = "acme", onUploadSuccess, onUploa
 
   const handleFile = async (file: File) => {
     // Validate file type
-    const allowedTypes = [
-      "application/pdf",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "application/msword",
-      "text/plain"
-    ];
-    
-    if (!allowedTypes.includes(file.type)) {
-      onUploadError?.("File type not allowed. Please upload PDF, DOCX, DOC, or TXT files.");
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      onUploadError?.("File type not allowed. Please upload PDF, DOCX, XLSX, DOC, or TXT files.");
       return;
     }
 
-    // Validate file size (50MB max)
-    const maxSize = 50 * 1024 * 1024; // 50MB
-    if (file.size > maxSize) {
+    // Validate file size
+    if (file.size > MAX_SIZE) {
       onUploadError?.("File size exceeds 50MB limit.");
       return;
     }
@@ -49,40 +42,22 @@ export default function FileUpload({ tenantId = "acme", onUploadSuccess, onUploa
     setUploading(true);
     setUploadProgress(0);
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const response = await axios.post<UploadResult>(
-        `${API}/api/documents/upload`,
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            "X-Tenant-Id": tenantId,
-          },
-          onUploadProgress: (progressEvent) => {
-            if (progressEvent.total) {
-              const percentCompleted = Math.round(
-                (progressEvent.loaded * 100) / progressEvent.total
-              );
-              setUploadProgress(percentCompleted);
-            }
-          },
-        }
-      );
+      const result = await api.uploadDocument(file, (percent) => {
+        setUploadProgress(percent);
+      });
 
       setUploadProgress(100);
-      onUploadSuccess?.(response.data);
-      
-      // Reset after a moment
+      onUploadSuccess?.(result);
+
+      // Reset after animation
       setTimeout(() => {
         setUploading(false);
         setUploadProgress(0);
       }, 1000);
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.error || error.message || "Upload failed";
-      onUploadError?.(errorMessage);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Upload failed";
+      onUploadError?.(message);
       setUploading(false);
       setUploadProgress(0);
     }
@@ -115,95 +90,93 @@ export default function FileUpload({ tenantId = "acme", onUploadSuccess, onUploa
     }
   };
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
-  };
-
   return (
-    <div className="file-upload-container">
-      <div
-        className={`file-upload-area ${dragActive ? "drag-active" : ""} ${uploading ? "uploading" : ""}`}
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        style={{
-          border: "2px dashed",
-          borderColor: dragActive ? "#3b82f6" : "#cbd5e1",
-          borderRadius: "8px",
-          padding: "48px 24px",
-          textAlign: "center",
-          cursor: uploading ? "not-allowed" : "pointer",
-          backgroundColor: dragActive ? "#eff6ff" : "#f8fafc",
-          transition: "all 0.2s",
-        }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.txt"
-          onChange={handleChange}
-          disabled={uploading}
-          style={{ display: "none" }}
-        />
-        
-        {uploading ? (
-          <div>
-            <div style={{ marginBottom: "16px" }}>
+    <div
+      onDragEnter={handleDrag}
+      onDragLeave={handleDrag}
+      onDragOver={handleDrag}
+      onDrop={handleDrop}
+      onClick={() => !uploading && fileInputRef.current?.click()}
+      className={`
+        border-2 border-dashed rounded-xl p-12 text-center transition-all
+        ${uploading ? "cursor-not-allowed" : "cursor-pointer"}
+        ${
+          dragActive
+            ? "border-blue-500 bg-blue-50"
+            : "border-gray-300 bg-gray-50 hover:border-gray-400 hover:bg-gray-100"
+        }
+      `}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.xlsx,.txt"
+        onChange={handleChange}
+        disabled={uploading}
+        className="hidden"
+      />
+
+      {uploading ? (
+        <div className="max-w-xs mx-auto">
+          <div className="mb-4">
+            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
               <div
-                style={{
-                  width: "100%",
-                  height: "8px",
-                  backgroundColor: "#e2e8f0",
-                  borderRadius: "4px",
-                  overflow: "hidden",
-                  marginBottom: "8px",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${uploadProgress}%`,
-                    height: "100%",
-                    backgroundColor: "#3b82f6",
-                    transition: "width 0.3s",
-                  }}
-                />
-              </div>
-              <p style={{ color: "#64748b", fontSize: "14px" }}>
-                Uploading... {uploadProgress}%
-              </p>
+                className="h-full bg-blue-500 transition-all duration-300 ease-out"
+                style={{ width: `${uploadProgress}%` }}
+              />
             </div>
           </div>
-        ) : (
-          <div>
+          <div className="flex items-center justify-center gap-2 text-gray-600">
             <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
+              className="animate-spin h-5 w-5 text-blue-500"
               fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              style={{ margin: "0 auto 16px", color: "#64748b" }}
+              viewBox="0 0 24 24"
             >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
             </svg>
-            <p style={{ fontSize: "16px", fontWeight: "500", marginBottom: "8px", color: "#1e293b" }}>
-              Drop your RFP document here, or click to browse
-            </p>
-            <p style={{ fontSize: "14px", color: "#64748b" }}>
-              Supports PDF, DOCX, DOC, TXT (max 50MB)
-            </p>
+            <span className="text-sm">Uploading... {uploadProgress}%</span>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div>
+          <div className="mb-4 flex justify-center">
+            <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
+              <svg
+                className="h-6 w-6 text-blue-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+            </div>
+          </div>
+          <p className="text-base font-medium text-gray-700 mb-1">
+            Drop your RFP document here, or{" "}
+            <span className="text-blue-600">browse</span>
+          </p>
+          <p className="text-sm text-gray-500">
+            PDF, DOCX, XLSX, DOC, or TXT (max 50MB)
+          </p>
+        </div>
+      )}
     </div>
   );
 }
-

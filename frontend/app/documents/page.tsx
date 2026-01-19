@@ -1,225 +1,243 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import axios from "axios";
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { useApi } from "@/hooks/useApi";
+import type { RfpDocument, DocumentStatus } from "@/types/api";
+import { formatFileSize, formatDate } from "@/types/api";
 import FileUpload from "../components/FileUpload";
-
-const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
-
-interface RfpDocument {
-  id: string;
-  filename: string;
-  originalFilename: string;
-  contentType: string;
-  fileSize: number;
-  status: string;
-  uploadedAt: string;
-  processedAt?: string;
-}
+import {
+  Button,
+  DocumentStatusBadge,
+  Card,
+  Alert,
+  SkeletonDocumentList,
+  EmptyState,
+  DocumentIcon,
+  ConfirmModal,
+} from "../components/ui";
 
 export default function DocumentsPage() {
+  const api = useApi();
   const [documents, setDocuments] = useState<RfpDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const tenantId = "acme"; // In a real app, this would come from auth context
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
+  // Delete modal state
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    document: RfpDocument | null;
+    loading: boolean;
+  }>({ isOpen: false, document: null, loading: false });
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await axios.get<RfpDocument[]>(`${API}/api/documents`, {
-        headers: { "X-Tenant-Id": tenantId },
-      });
-      setDocuments(response.data);
+      const data = await api.listDocuments();
+      setDocuments(data);
       setError(null);
-    } catch (err: any) {
-      setError(err.response?.data?.error || "Failed to load documents");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to load documents";
+      setError(message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [api]);
 
-  const handleUploadSuccess = (result: any) => {
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const handleUploadSuccess = (result: { filename: string }) => {
     setSuccessMessage(`Successfully uploaded: ${result.filename}`);
-    setTimeout(() => setSuccessMessage(null), 5000);
-    fetchDocuments(); // Refresh the list
+    fetchDocuments();
   };
 
   const handleUploadError = (errorMsg: string) => {
     setError(errorMsg);
-    setTimeout(() => setError(null), 5000);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this document?")) {
-      return;
-    }
+  const openDeleteModal = (doc: RfpDocument) => {
+    setDeleteModal({ isOpen: true, document: doc, loading: false });
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteModal({ isOpen: false, document: null, loading: false });
+  };
+
+  const handleDelete = async () => {
+    if (!deleteModal.document) return;
 
     try {
-      await axios.delete(`${API}/api/documents/${id}`, {
-        headers: { "X-Tenant-Id": tenantId },
-      });
+      setDeleteModal((prev) => ({ ...prev, loading: true }));
+      await api.deleteDocument(deleteModal.document.id);
       setSuccessMessage("Document deleted successfully");
-      setTimeout(() => setSuccessMessage(null), 3000);
+      closeDeleteModal();
       fetchDocuments();
-    } catch (err: any) {
-      setError(err.response?.data?.error || "Failed to delete document");
-      setTimeout(() => setError(null), 5000);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete document";
+      setError(message);
+      closeDeleteModal();
     }
   };
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
-  };
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleString();
-  };
-
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case "UPLOADED":
-        return "#3b82f6"; // blue
-      case "PROCESSING":
-        return "#f59e0b"; // amber
-      case "COMPLETED":
-        return "#10b981"; // green
-      case "FAILED":
-        return "#ef4444"; // red
-      default:
-        return "#64748b"; // gray
+  const getFileTypeIcon = (contentType: string) => {
+    if (contentType.includes("pdf")) {
+      return (
+        <div className="h-10 w-10 rounded-lg bg-red-100 flex items-center justify-center">
+          <span className="text-red-600 text-xs font-bold">PDF</span>
+        </div>
+      );
     }
+    if (contentType.includes("word") || contentType.includes("document")) {
+      return (
+        <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
+          <span className="text-blue-600 text-xs font-bold">DOC</span>
+        </div>
+      );
+    }
+    if (contentType.includes("sheet") || contentType.includes("excel")) {
+      return (
+        <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center">
+          <span className="text-green-600 text-xs font-bold">XLS</span>
+        </div>
+      );
+    }
+    return (
+      <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center">
+        <span className="text-gray-600 text-xs font-bold">FILE</span>
+      </div>
+    );
   };
 
   return (
-    <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px" }}>
-      <h1 style={{ fontSize: "32px", fontWeight: "700", marginBottom: "8px" }}>
-        RFP Documents
-      </h1>
-      <p style={{ color: "#64748b", marginBottom: "32px" }}>
-        Upload and manage your RFP documents
-      </p>
+    <div className="max-w-5xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          RFP Documents
+        </h1>
+        <p className="text-gray-500">
+          Upload and manage your RFP documents for analysis
+        </p>
+      </div>
 
       {error && (
-        <div
-          style={{
-            backgroundColor: "#fee2e2",
-            border: "1px solid #fca5a5",
-            color: "#991b1b",
-            padding: "12px 16px",
-            borderRadius: "6px",
-            marginBottom: "24px",
-          }}
+        <Alert
+          variant="error"
+          dismissible
+          autoDismiss={5000}
+          onDismiss={() => setError(null)}
+          className="mb-6"
         >
           {error}
-        </div>
+        </Alert>
       )}
 
       {successMessage && (
-        <div
-          style={{
-            backgroundColor: "#d1fae5",
-            border: "1px solid #6ee7b7",
-            color: "#065f46",
-            padding: "12px 16px",
-            borderRadius: "6px",
-            marginBottom: "24px",
-          }}
+        <Alert
+          variant="success"
+          dismissible
+          autoDismiss={5000}
+          onDismiss={() => setSuccessMessage(null)}
+          className="mb-6"
         >
           {successMessage}
-        </div>
+        </Alert>
       )}
 
-      <div style={{ marginBottom: "48px" }}>
-        <FileUpload
-          tenantId={tenantId}
-          onUploadSuccess={handleUploadSuccess}
-          onUploadError={handleUploadError}
-        />
-      </div>
+      <Card className="mb-8">
+        <div className="p-6">
+          <FileUpload
+            onUploadSuccess={handleUploadSuccess}
+            onUploadError={handleUploadError}
+          />
+        </div>
+      </Card>
 
       <div>
-        <h2 style={{ fontSize: "24px", fontWeight: "600", marginBottom: "16px" }}>
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">
           Uploaded Documents
         </h2>
 
         {loading ? (
-          <p style={{ color: "#64748b" }}>Loading documents...</p>
+          <SkeletonDocumentList count={3} />
         ) : documents.length === 0 ? (
-          <p style={{ color: "#64748b" }}>No documents uploaded yet.</p>
+          <Card>
+            <EmptyState
+              icon={<DocumentIcon className="h-12 w-12" />}
+              title="No documents yet"
+              description="Upload your first RFP document to get started with automated extraction and analysis."
+            />
+          </Card>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gap: "16px",
-            }}
-          >
+          <div className="space-y-3">
             {documents.map((doc) => (
-              <div
-                key={doc.id}
-                style={{
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "8px",
-                  padding: "20px",
-                  backgroundColor: "#ffffff",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-                  <div style={{ flex: 1 }}>
-                    <h3 style={{ fontSize: "18px", fontWeight: "600", marginBottom: "8px" }}>
-                      {doc.originalFilename}
-                    </h3>
-                    <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", fontSize: "14px", color: "#64748b" }}>
-                      <span>Size: {formatFileSize(doc.fileSize)}</span>
-                      <span>Type: {doc.contentType}</span>
-                      <span>Uploaded: {formatDate(doc.uploadedAt)}</span>
+              <Card key={doc.id} className="hover:border-gray-300 transition-colors">
+                <div className="p-4 flex items-center gap-4">
+                  {getFileTypeIcon(doc.contentType)}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-1">
+                      <h3 className="font-medium text-gray-900 truncate">
+                        {doc.originalFilename}
+                      </h3>
+                      <DocumentStatusBadge status={doc.status as DocumentStatus} />
                     </div>
-                    <div style={{ marginTop: "12px" }}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "4px 12px",
-                          borderRadius: "12px",
-                          fontSize: "12px",
-                          fontWeight: "500",
-                          backgroundColor: getStatusColor(doc.status) + "20",
-                          color: getStatusColor(doc.status),
-                        }}
-                      >
-                        {doc.status}
+                    <div className="flex items-center gap-4 text-sm text-gray-500">
+                      <span>{formatFileSize(doc.fileSize)}</span>
+                      <span className="hidden sm:inline">
+                        {formatDate(doc.uploadedAt)}
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(doc.id)}
-                    style={{
-                      padding: "8px 16px",
-                      backgroundColor: "#fee2e2",
-                      color: "#991b1b",
-                      border: "none",
-                      borderRadius: "6px",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      fontWeight: "500",
-                    }}
-                  >
-                    Delete
-                  </button>
+
+                  <div className="flex items-center gap-2">
+                    {doc.status === "COMPLETED" && (
+                      <Link href={`/documents/${doc.id}`}>
+                        <Button variant="secondary" size="sm">
+                          View
+                        </Button>
+                      </Link>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openDeleteModal(doc)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={deleteModal.isOpen}
+        onClose={closeDeleteModal}
+        onConfirm={handleDelete}
+        title="Delete Document"
+        message={`Are you sure you want to delete "${deleteModal.document?.originalFilename}"? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        loading={deleteModal.loading}
+      />
     </div>
   );
 }
-
