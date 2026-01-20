@@ -8,4 +8,4 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /build/target/saas-backend-0.1.0.jar app.jar
-CMD ["java", "-jar", "app.jar"]
+CMD ["java", "-Xmx384m", "-Xms256m", "-XX:+UseG1GC", "-XX:MaxGCPauseMillis=100", "-jar", "app.jar"]
